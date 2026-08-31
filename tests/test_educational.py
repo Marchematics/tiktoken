@@ -1,4 +1,41 @@
+import collections
+import random
+
+import pytest
+import regex
+
 from tiktoken._educational import bpe_train
+
+
+def _reference_bpe_train(data: str, vocab_size: int, pat_str: str) -> dict[bytes, int]:
+    ranks = {bytes([i]): i for i in range(256)}
+    words = [
+        [bytes([b]) for b in word.encode("utf-8")]
+        for word in regex.findall(pat_str, data)
+    ]
+    while len(ranks) < vocab_size:
+        stats = collections.Counter(
+            pair for word in words for pair in zip(word[:-1], word[1:])
+        )
+        most_common_pair = max(stats, key=lambda pair: stats[pair])
+        token_bytes = most_common_pair[0] + most_common_pair[1]
+        ranks[token_bytes] = len(ranks)
+        new_words = []
+        for word in words:
+            new_word = []
+            i = 0
+            while i < len(word) - 1:
+                if (word[i], word[i + 1]) == most_common_pair:
+                    new_word.append(token_bytes)
+                    i += 2
+                else:
+                    new_word.append(word[i])
+                    i += 1
+            if i == len(word) - 1:
+                new_word.append(word[i])
+            new_words.append(new_word)
+        words = new_words
+    return ranks
 
 
 def test_bpe_train_preserves_merge_order():
@@ -17,3 +54,18 @@ def test_bpe_train_merges_overlapping_pairs_left_to_right():
 
     assert ranks[b"aa"] == 256
     assert ranks[b"aaa"] == 257
+
+
+@pytest.mark.parametrize("seed", [0, 7, 42])
+@pytest.mark.parametrize("vocab_size", [260, 272])
+def test_bpe_train_matches_reference(seed: int, vocab_size: int):
+    rng = random.Random(seed)
+    data = " ".join(
+        "".join(rng.choice("abcde") for _ in range(rng.randint(4, 12)))
+        for _ in range(24)
+    )
+    pat_str = r"[^ ]+"
+
+    assert bpe_train(data, vocab_size, pat_str, visualise=None) == _reference_bpe_train(
+        data, vocab_size, pat_str
+    )
