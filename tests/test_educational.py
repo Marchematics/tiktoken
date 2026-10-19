@@ -56,12 +56,37 @@ def test_bpe_train_merges_overlapping_pairs_left_to_right():
     assert ranks[b"aaa"] == 257
 
 
+def test_bpe_train_breaks_ties_in_corpus_order():
+    ranks = bpe_train("bc ab", vocab_size=257, pat_str=r"[^ ]+", visualise=None)
+
+    assert ranks[b"bc"] == 256
+
+
+def test_bpe_train_updates_first_occurrence_after_a_merge():
+    # Merging ac + b removes the earliest c + b. The next tie is won by ac + c.
+    ranks = bpe_train("acb accb", vocab_size=259, pat_str=r"[^ ]+", visualise=None)
+
+    assert list(ranks.items())[256:] == [(b"ac", 256), (b"acb", 257), (b"acc", 258)]
+
+
+@pytest.mark.parametrize(
+    "data,vocab_size",
+    [("aaaaaaa aaaaa aaaa", 259), ("abababa bababab ababababa", 262)],
+)
+def test_bpe_train_matches_reference_with_overlapping_runs(data: str, vocab_size: int):
+    pat_str = r"[^ ]+"
+    assert bpe_train(data, vocab_size, pat_str, visualise=None) == _reference_bpe_train(
+        data, vocab_size, pat_str
+    )
+
+
+@pytest.mark.parametrize("alphabet", ["abcde", "aé你🙂"])
 @pytest.mark.parametrize("seed", [0, 7, 42])
 @pytest.mark.parametrize("vocab_size", [260, 272])
-def test_bpe_train_matches_reference(seed: int, vocab_size: int):
+def test_bpe_train_matches_reference(alphabet: str, seed: int, vocab_size: int):
     rng = random.Random(seed)
     data = " ".join(
-        "".join(rng.choice("abcde") for _ in range(rng.randint(4, 12)))
+        "".join(rng.choice(alphabet) for _ in range(rng.randint(4, 12)))
         for _ in range(24)
     )
     pat_str = r"[^ ]+"
